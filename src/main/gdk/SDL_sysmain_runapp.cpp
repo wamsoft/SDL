@@ -48,23 +48,34 @@ int SDL_RunApp(int argc, char **argv, SDL_main_func mainFunction, void *reserved
     HRESULT hr = XGameRuntimeInitialize();
 
     if (SUCCEEDED(hr) && SDL_GetGDKTaskQueue(&taskQueue)) {
-        Uint32 titleid = 0;
-        char scidBuffer[64];
-        XblInitArgs xblArgs;
-
         XTaskQueueSetCurrentProcessTaskQueue(taskQueue);
 
-        // Try to get the title ID and initialize Xbox Live
-        hr = XGameGetXboxTitleId(&titleid);
-        if (SUCCEEDED(hr)) {
-            SDL_zero(xblArgs);
-            xblArgs.queue = taskQueue;
-            SDL_snprintf(scidBuffer, 64, "00000000-0000-0000-0000-0000%08X", titleid);
-            xblArgs.scid = scidBuffer;
-            hr = XblInitialize(&xblArgs);
-        } else {
-            SDL_SetError("[GDK] Unable to get titleid. Will not call XblInitialize. Check MicrosoftGame.config!");
+#ifdef SDL_PLATFORM_WINGDK
+        // Xbox Live XSAPI (Xbl*) is only available on the PC GDK path, where
+        // it ships via Microsoft.Xbox.Services.GDK.C.Thunks.{lib,dll}. On
+        // Xbox console the Thunks DLL does not exist and the Xbl symbols are
+        // not exported by xgameplatform.lib, so calling XblInitialize there
+        // either fails to link or, if linked through GRDK's xgameruntime.lib,
+        // pulls in Thunks.dll at runtime and triggers STATUS_DLL_NOT_FOUND
+        // (0xC0000135) on boot. Gate the call so it only runs on PC.
+        {
+            Uint32 titleid = 0;
+            char scidBuffer[64];
+            XblInitArgs xblArgs;
+
+            // Try to get the title ID and initialize Xbox Live
+            hr = XGameGetXboxTitleId(&titleid);
+            if (SUCCEEDED(hr)) {
+                SDL_zero(xblArgs);
+                xblArgs.queue = taskQueue;
+                SDL_snprintf(scidBuffer, 64, "00000000-0000-0000-0000-0000%08X", titleid);
+                xblArgs.scid = scidBuffer;
+                hr = XblInitialize(&xblArgs);
+            } else {
+                SDL_SetError("[GDK] Unable to get titleid. Will not call XblInitialize. Check MicrosoftGame.config!");
+            }
         }
+#endif
 
         if (!GDK_RegisterChangeNotifications()) {
             return -1;
