@@ -128,6 +128,15 @@ list(APPEND CMAKE_REQUIRED_LINK_OPTIONS ${SDL_CHECK_REQUIRED_LINK_OPTIONS})
 # Get the platform
 SDL_DetectCMakePlatform()
 
+if(SDL_XBOX_CONSOLE)
+  # Vulkan / Offscreen pull in vulkan_win32.h, which depends on Win32 GUI types
+  # (HMONITOR) absent from the Xbox console SDK headers. The hand-maintained
+  # VisualC-GDK project simply does not compile those drivers, so mirror that
+  # here by forcing the options off before dep_option evaluates them.
+  set(SDL_VULKAN    OFF CACHE BOOL "Disabled on Xbox console (vulkan_win32.h needs HMONITOR)" FORCE)
+  set(SDL_OFFSCREEN OFF CACHE BOOL "Disabled on Xbox console (depends on Vulkan/Win32 GUI)"    FORCE)
+endif()
+
 # Don't mistake macOS for unix
 if(UNIX AND NOT ANDROID AND NOT APPLE AND NOT RISCOS)
   set(UNIX_SYS ON)
@@ -2342,7 +2351,10 @@ elseif(WINDOWS)
       set(SDL_VIDEO_RENDER_D3D11 1)
       set(HAVE_RENDER_D3D11 TRUE)
     endif()
-    if(SDL_RENDER_D3D12 AND HAVE_DXGI1_6_H)
+    if(SDL_RENDER_D3D12 AND (HAVE_DXGI1_6_H OR SDL_XBOX_CONSOLE))
+      # Xbox console uses its own D3D12 runtime variant (d3d12_x{,s}.lib) and
+      # does not ship a DXGI 1.6 header, but the render driver's Xbox path
+      # branches via SDL_PLATFORM_XBOX* and does not need DXGI 1.6.
       set(SDL_VIDEO_RENDER_D3D12 1)
       set(HAVE_RENDER_D3D12 TRUE)
     endif()
@@ -2401,8 +2413,22 @@ elseif(WINDOWS)
   )
   set(HAVE_SDL_STORAGE 1)
 
-  # Libraries for Win32 native and MinGW
-  sdl_link_dependency(base LIBS kernel32 user32 gdi32 winmm imm32 ole32 oleaut32 version uuid advapi32 setupapi shell32)
+  # Libraries for Win32 native and MinGW.
+  # On Xbox console (Game OS) the standard Win32 system DLLs (user32, gdi32,
+  # ole32, oleaut32, advapi32, shell32, kernel32) are not available — the
+  # Gaming.Xbox.* MSBuild platform extension force-ignores them via
+  # IgnoreSpecificDefaultLibraries, and xgameplatform.lib (auto-linked) provides
+  # the equivalent subset of Win32 API needed by SDL3 itself. Force-linking the
+  # desktop variants here would re-introduce USER32.DLL etc. into the import
+  # table and the title fails to load on the console with STATUS_DLL_NOT_FOUND
+  # (0xC0000135). Match VisualC-GDK/SDL/SDL.vcxproj's Xbox AdditionalDependencies
+  # which keeps only the platform-neutral system libs (winmm/imm32/version/
+  # uuid/setupapi).
+  if(SDL_XBOX_CONSOLE)
+    sdl_link_dependency(base LIBS winmm imm32 version uuid setupapi)
+  else()
+    sdl_link_dependency(base LIBS kernel32 user32 gdi32 winmm imm32 ole32 oleaut32 version uuid advapi32 setupapi shell32)
+  endif()
 
   set(SDL_TIME_WINDOWS 1)
   sdl_glob_sources("${SDL3_SOURCE_DIR}/src/time/windows/*.c")
@@ -2503,6 +2529,157 @@ elseif(WINDOWS)
   sdl_glob_sources(SHARED "${SDL3_SOURCE_DIR}/src/core/windows/*.rc")
   if(MINGW OR CYGWIN)
     sdl_pc_link_options("-mwindows")
+  endif()
+
+  # ───────────────────────────────────────────────────────────────────────
+  # Microsoft GDK / GXDK
+  #
+  # The main CMake build does not pull in the GDK-specific implementation
+  # files; those are only wired up by the hand-maintained VisualC-GDK Visual
+  # Studio projects. Mirror that wiring here so that GDK desktop and Xbox
+  # console targets can be built directly from CMake (e.g. via FetchContent).
+  # ───────────────────────────────────────────────────────────────────────
+  if(SDL_GDK)
+    sdl_sources(
+      "${SDL3_SOURCE_DIR}/src/core/gdk/SDL_gdk.cpp"
+      "${SDL3_SOURCE_DIR}/src/main/gdk/SDL_sysmain_runapp.cpp"
+      "${SDL3_SOURCE_DIR}/src/video/gdk/SDL_gdktextinput.cpp"
+    )
+
+    if(NOT DEFINED ENV{GameDK})
+      message(FATAL_ERROR "SDL_GDK was detected but the GameDK environment variable is not set. Install the Microsoft GDK or open a GDK-aware command prompt.")
+    endif()
+    set(_sdl_gdk_root "$ENV{GameDK}$ENV{XdkEditionTarget}")
+
+    # xgameruntime.lib is fine on both PC and Xbox console: on PC it is the
+    # GRDK import library that the redistributable xgameruntime.dll provides
+    # at runtime; on Xbox console the Gaming.Xbox.* platform extension adds
+    # the GRDK Lib path to Console_EndpointLibRoot so the *same* import lib
+    # links, but the actual DLL is provided by the Xbox Game OS.
+    sdl_link_dependency(gdk
+      LIBS xgameruntime.lib
+    )
+
+    if(SDL_GDK_DESKTOP)
+      # appnotify.lib (RegisterAppStateChangeNotification) and
+      # Microsoft.Xbox.Services.GDK.C.Thunks.lib (XSAPI thunks) are PC-only.
+      # On Xbox console, the equivalent symbols are provided by the
+      # auto-linked xgameplatform.lib (RegisterAppStateChangeNotification)
+      # and XblInitialize is guarded out of SDL_sysmain_runapp.cpp via
+      # SDL_PLATFORM_WINGDK, so the console side does not need either lib.
+      # Linking them on Xbox console would force the wrong API set imports
+      # (api-ms-win-core-psm-appnotify-l1-1-0.dll, Microsoft.Xbox.Services.
+      # GDK.C.Thunks.dll) which do not exist on the console, causing
+      # STATUS_DLL_NOT_FOUND (0xC0000135) at boot.
+      sdl_link_dependency(gdk_appnotify
+        LIBS appnotify.lib
+      )
+
+      sdl_link_directories(
+        "${_sdl_gdk_root}/GRDK/ExtensionLibraries/Xbox.Services.API.C/Lib/x64/$<CONFIG>"
+      )
+      sdl_link_dependency(gdk_thunks
+        LIBS Microsoft.Xbox.Services.GDK.C.Thunks.lib
+      )
+    endif()
+  endif()
+
+  if(SDL_XBOX_CONSOLE)
+    # xgameplatform.lib is the Xbox-console umbrella library: it provides the
+    # subset of Win32 system API that ships in the Xbox Game OS
+    # (RegisterAppStateChangeNotification, UnregisterApp*, CreateWindowExW,
+    # MessageBoxW, GetDC, ...). The Gaming.Xbox.* MSBuild platform extension
+    # adds this to AdditionalDependencies via Platform.Common.props, but when
+    # CMake-generated link lines override AdditionalDependencies through
+    # target_link_libraries, the auto-injection can be lost. Link it
+    # explicitly to be safe.
+    sdl_link_dependency(xgameplatform LIBS xgameplatform.lib)
+
+    # Xbox console ships its own D3D12 runtime variant, distinct from the
+    # desktop d3d12.lib.
+    if(SDL_XBOX_SCARLETT)
+      sdl_link_dependency(d3d12_xbox LIBS d3d12_xs.lib)
+    else()
+      sdl_link_dependency(d3d12_xbox LIBS d3d12_x.lib)
+    endif()
+
+    # Xbox-only sources the main CMake build does not include:
+    #   - GDK filesystem (XGameSaveFiles / XPersistentLocalStorage backed)
+    #   - Xbox D3D12 render backend + shader blobs
+    #   - GPU D3D12 backend (gated on HAVE_DXGI1_6_H elsewhere; the Xbox
+    #     path branches via SDL_PLATFORM_XBOX* and does not need DXGI 1.6)
+    #   - Dummy backends for the subsystems that the Xbox build_config swaps
+    #     to dummy at runtime
+    sdl_sources(
+      "${SDL3_SOURCE_DIR}/src/filesystem/gdk/SDL_sysfilesystem.cpp"
+      "${SDL3_SOURCE_DIR}/src/render/direct3d12/SDL_render_d3d12_xbox.cpp"
+      "${SDL3_SOURCE_DIR}/src/render/direct3d12/SDL_shaders_d3d12_xboxone.cpp"
+      "${SDL3_SOURCE_DIR}/src/render/direct3d12/SDL_shaders_d3d12_xboxseries.cpp"
+      "${SDL3_SOURCE_DIR}/src/gpu/d3d12/SDL_gpu_d3d12.c"
+      "${SDL3_SOURCE_DIR}/src/dialog/dummy/SDL_dummydialog.c"
+      "${SDL3_SOURCE_DIR}/src/haptic/dummy/SDL_syshaptic.c"
+      "${SDL3_SOURCE_DIR}/src/process/dummy/SDL_dummyprocess.c"
+      "${SDL3_SOURCE_DIR}/src/sensor/dummy/SDL_dummysensor.c"
+      "${SDL3_SOURCE_DIR}/src/tray/dummy/SDL_tray.c"
+    )
+
+    # Win32 sources to exclude on Xbox console (no Xbox SDK equivalent for
+    # the Win32 dialog / filesystem / tray APIs they depend on). Mirrors
+    # the per-file exclusions in VisualC-GDK/SDL/SDL.vcxproj.
+    set_source_files_properties(
+      "${SDL3_SOURCE_DIR}/src/dialog/windows/SDL_windowsdialog.c"
+      "${SDL3_SOURCE_DIR}/src/filesystem/windows/SDL_sysfilesystem.c"
+      "${SDL3_SOURCE_DIR}/src/tray/windows/SDL_tray.c"
+      PROPERTIES HEADER_FILE_ONLY TRUE
+    )
+
+    # Win32 sources that must compile as C++ on Xbox console (the Xbox SDK
+    # exposes some types via C++-only declarations). Mirrors the per-file
+    # CompileAs="CompileAsCpp" flags in VisualC-GDK/SDL/SDL.vcxproj.
+    set_source_files_properties(
+      "${SDL3_SOURCE_DIR}/src/core/windows/SDL_xinput.c"
+      "${SDL3_SOURCE_DIR}/src/gpu/d3d12/SDL_gpu_d3d12.c"
+      "${SDL3_SOURCE_DIR}/src/haptic/windows/SDL_windowshaptic.c"
+      "${SDL3_SOURCE_DIR}/src/joystick/windows/SDL_windowsjoystick.c"
+      "${SDL3_SOURCE_DIR}/src/joystick/windows/SDL_xinputjoystick.c"
+      "${SDL3_SOURCE_DIR}/src/render/direct3d12/SDL_render_d3d12.c"
+      PROPERTIES LANGUAGE CXX
+    )
+
+    # SDL3's main build generates SDL_build_config.h via file(GENERATE),
+    # which runs at the end of CMake configure. Overwrite it at build time
+    # with the Xbox-console build config so the generated header matches
+    # what the hand-maintained VisualC-GDK build uses.
+    add_custom_target(SDL3-xbox-build-config
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${SDL3_SOURCE_DIR}/include/build_config/SDL_build_config_xbox.h"
+        "${SDL3_BINARY_DIR}/include-config-$<LOWER_CASE:$<CONFIG>>/build_config/SDL_build_config.h"
+      BYPRODUCTS
+        "${SDL3_BINARY_DIR}/include-config-$<LOWER_CASE:$<CONFIG>>/build_config/SDL_build_config.h"
+      COMMENT "Substituting SDL_build_config.h with the Xbox console variant"
+      VERBATIM
+    )
+
+    # Pre-compile the Xbox D3D12 shader blobs (compile_shaders_xbox.bat shells
+    # out to %GameDKLatest%\GXDK\bin\<target>\DXC.exe). The render backend and
+    # the gpu backend each have their own batch script.
+    if(SDL_XBOX_ONE)
+      set(_sdl_xbox_shader_arg "one")
+    else()
+      set(_sdl_xbox_shader_arg "")
+    endif()
+    add_custom_target(SDL3-xbox-shaders
+      COMMAND cmd /c "${SDL3_SOURCE_DIR}/src/render/direct3d12/compile_shaders_xbox.bat" "${SDL3_SOURCE_DIR}/" ${_sdl_xbox_shader_arg}
+      COMMAND cmd /c "${SDL3_SOURCE_DIR}/src/gpu/d3d12/compile_shaders_xbox.bat"        "${SDL3_SOURCE_DIR}/" ${_sdl_xbox_shader_arg}
+      COMMENT "Compiling Xbox D3D12 shader blobs"
+      VERBATIM
+    )
+
+    foreach(_sdl_target IN ITEMS SDL3-static SDL3-shared)
+      if(TARGET ${_sdl_target})
+        add_dependencies(${_sdl_target} SDL3-xbox-build-config SDL3-xbox-shaders)
+      endif()
+    endforeach()
   endif()
 
 elseif(APPLE)

@@ -72,4 +72,26 @@ function(SDL_DetectCMakePlatform)
     set(sdl_cmake_platform "unknown")
   endif()
   set(SDL_CMAKE_PLATFORM "${sdl_cmake_platform}" PARENT_SCOPE)
+
+  # Microsoft GDK / GXDK: detected by the Visual Studio platform name.
+  #   Gaming.Desktop.x64        -> GDK desktop (PC build using XGameRuntime).
+  #   Gaming.Xbox.Scarlett.x64  -> GXDK Xbox Series X|S.
+  #   Gaming.Xbox.XboxOne.x64   -> GXDK Xbox One.
+  set(SDL_GDK            FALSE PARENT_SCOPE)
+  set(SDL_GDK_DESKTOP    FALSE PARENT_SCOPE)
+  set(SDL_XBOX_CONSOLE   FALSE PARENT_SCOPE)
+  set(SDL_XBOX_SCARLETT  FALSE PARENT_SCOPE)
+  set(SDL_XBOX_ONE       FALSE PARENT_SCOPE)
+  if(WIN32 AND CMAKE_GENERATOR_PLATFORM MATCHES "^Gaming\\.Xbox\\.")
+    set(SDL_GDK          TRUE PARENT_SCOPE)
+    set(SDL_XBOX_CONSOLE TRUE PARENT_SCOPE)
+    if(CMAKE_GENERATOR_PLATFORM STREQUAL "Gaming.Xbox.Scarlett.x64")
+      set(SDL_XBOX_SCARLETT TRUE PARENT_SCOPE)
+    elseif(CMAKE_GENERATOR_PLATFORM STREQUAL "Gaming.Xbox.XboxOne.x64")
+      set(SDL_XBOX_ONE     TRUE PARENT_SCOPE)
+    endif()
+  elseif(WIN32 AND CMAKE_GENERATOR_PLATFORM STREQUAL "Gaming.Desktop.x64")
+    set(SDL_GDK         TRUE PARENT_SCOPE)
+    set(SDL_GDK_DESKTOP TRUE PARENT_SCOPE)
+  endif()
 endfunction()
