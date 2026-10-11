@@ -2675,9 +2675,37 @@ elseif(WINDOWS)
       VERBATIM
     )
 
+    # Pre-compile the GPU renderer's DXIL shaders for the console (the checked-in
+    # headers are generic DXIL, which the runtime recompiles at load time).
+    # Uses the GXDK dxc of the GDK edition this build targets.
+    if(SDL_XBOX_ONE)
+      set(_sdl_xbox_dxc_dir "XboxOne")
+    else()
+      set(_sdl_xbox_dxc_dir "Scarlett")
+    endif()
+    set(_sdl_xbox_dxc "$ENV{GameDK}$ENV{XdkEditionTarget}/GXDK/bin/${_sdl_xbox_dxc_dir}/dxc.exe")
+    if(NOT EXISTS "${_sdl_xbox_dxc}")
+      set(_sdl_xbox_dxc "$ENV{GameDKLatest}/GXDK/bin/${_sdl_xbox_dxc_dir}/dxc.exe")
+    endif()
+    file(TO_CMAKE_PATH "${_sdl_xbox_dxc}" _sdl_xbox_dxc)
+    set(_sdl_render_gpu_shaders "${SDL3_SOURCE_DIR}/src/render/gpu/shaders")
+    set(_sdl_render_gpu_xbox_dir "${SDL3_BINARY_DIR}/render-gpu-xbox")
+    set(_sdl_render_gpu_xbox_h "${_sdl_render_gpu_xbox_dir}/SDL_render_gpu_xbox_dxil.h")
+    file(GLOB _sdl_render_gpu_hlsl "${_sdl_render_gpu_shaders}/*.hlsl" "${_sdl_render_gpu_shaders}/*.hlsli")
+    add_custom_command(
+      OUTPUT "${_sdl_render_gpu_xbox_h}"
+      COMMAND "${CMAKE_COMMAND}" "-DDXC=${_sdl_xbox_dxc}" "-DSRC_DIR=${_sdl_render_gpu_shaders}"
+              "-DOUT=${_sdl_render_gpu_xbox_h}" -P "${_sdl_render_gpu_shaders}/compile_shaders_xbox.cmake"
+      DEPENDS "${_sdl_render_gpu_shaders}/compile_shaders_xbox.cmake" ${_sdl_render_gpu_hlsl}
+      COMMENT "Compiling the GPU renderer shaders for Xbox"
+      VERBATIM
+    )
+    add_custom_target(SDL3-xbox-render-gpu-shaders DEPENDS "${_sdl_render_gpu_xbox_h}")
+
     foreach(_sdl_target IN ITEMS SDL3-static SDL3-shared)
       if(TARGET ${_sdl_target})
-        add_dependencies(${_sdl_target} SDL3-xbox-build-config SDL3-xbox-shaders)
+        add_dependencies(${_sdl_target} SDL3-xbox-build-config SDL3-xbox-shaders SDL3-xbox-render-gpu-shaders)
+        target_include_directories(${_sdl_target} PRIVATE "${_sdl_render_gpu_xbox_dir}")
       endif()
     endforeach()
   endif()
