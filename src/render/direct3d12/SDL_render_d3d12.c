@@ -2246,7 +2246,7 @@ static bool D3D12_LockTexture(SDL_Renderer *renderer, SDL_Texture *texture,
     } else {
         bpp = 4;
     }
-    pitchedDesc.RowPitch = D3D12_Align(rect->w * bpp, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+    pitchedDesc.RowPitch = D3D12_Align(rect->w * bpp, SDL_D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
 
     /* Make note of where the staging texture will be written to
      * (on a call to SDL_UnlockTexture):
@@ -2304,7 +2304,7 @@ static void D3D12_UnlockTexture(SDL_Renderer *renderer, SDL_Texture *texture)
     } else {
         bpp = 4;
     }
-    pitchedDesc.RowPitch = D3D12_Align(textureData->lockedRect.w * bpp, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+    pitchedDesc.RowPitch = D3D12_Align(textureData->lockedRect.w * bpp, SDL_D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
 
     SDL_zero(placedTextureDesc);
     placedTextureDesc.Offset = 0;
@@ -3337,7 +3337,7 @@ static SDL_Surface *D3D12_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rec
     pitchedDesc.Height = textureDesc.Height;
     pitchedDesc.Depth = 1;
     bpp = SDL_BYTESPERPIXEL(D3D12_DXGIFormatToSDLPixelFormat(pitchedDesc.Format));
-    pitchedDesc.RowPitch = D3D12_Align(pitchedDesc.Width * bpp, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+    pitchedDesc.RowPitch = D3D12_Align(pitchedDesc.Width * bpp, SDL_D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
 
     SDL_zero(placedTextureDesc);
     placedTextureDesc.Offset = 0;

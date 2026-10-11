@@ -100,4 +100,13 @@
 
 #endif // !(defined(SDL_PLATFORM_XBOXONE) || defined(SDL_PLATFORM_XBOXSERIES))
 
+// Row pitch alignment for buffer <-> texture copies (CopyTextureRegion with a placed footprint).
+// Xbox One requires 1024 bytes (D3D12XBOX_TEXTURE_DATA_PITCH_ALIGNMENT), while the generic
+// D3D12_TEXTURE_DATA_PITCH_ALIGNMENT is 256; using the latter makes the copy fail on Xbox One.
+#if defined(SDL_PLATFORM_XBOXONE) || defined(SDL_PLATFORM_XBOXSERIES)
+#define SDL_D3D12_TEXTURE_DATA_PITCH_ALIGNMENT D3D12XBOX_TEXTURE_DATA_PITCH_ALIGNMENT
+#else
+#define SDL_D3D12_TEXTURE_DATA_PITCH_ALIGNMENT D3D12_TEXTURE_DATA_PITCH_ALIGNMENT
+#endif
+
 #endif // SDL_D3D12_H

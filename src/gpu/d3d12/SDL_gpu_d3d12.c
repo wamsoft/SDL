@@ -6048,7 +6048,7 @@ static void D3D12_UploadToTexture(
         needsPlacementCopy = false;
     } else {
         alignedRowPitch = (destination->w + (blockWidth - 1)) / blockWidth * blockSize;
-        alignedRowPitch = D3D12_INTERNAL_Align(alignedRowPitch, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+        alignedRowPitch = D3D12_INTERNAL_Align(alignedRowPitch, SDL_D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
         needsRealignment = rowsPerSlice != destination->h || rowPitch != alignedRowPitch;
         needsPlacementCopy = source->offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT != 0;
     }
@@ -6382,7 +6382,7 @@ static void D3D12_DownloadFromTexture(
         needsRealignment = false;
         needsPlacementCopy = false;
     } else {
-        alignedRowPitch = D3D12_INTERNAL_Align(rowPitch, D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
+        alignedRowPitch = D3D12_INTERNAL_Align(rowPitch, SDL_D3D12_TEXTURE_DATA_PITCH_ALIGNMENT);
         needsRealignment = rowsPerSlice != source->h || rowPitch != alignedRowPitch;
         needsPlacementCopy = destination->offset % D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT != 0;
     }
