@@ -308,14 +308,26 @@ bool WIN_SetRawKeyboardFlag_Inputsink(SDL_VideoDevice *_this, bool enabled)
 
 #else
 
+// Xbox has no raw input, but GameInput can deliver mouse and keyboard input
+// (SDL_HINT_WINDOWS_GAMEINPUT). Route the raw mouse / keyboard switches to it.
 bool WIN_SetRawMouseEnabled(SDL_VideoDevice *_this, bool enabled)
 {
-    return SDL_Unsupported();
+    SDL_VideoData *data = _this->internal;
+    if (!data->gameinput_context) {
+        return SDL_Unsupported();
+    }
+    data->raw_mouse_enabled = enabled;
+    return WIN_UpdateGameInputEnabled(_this);
 }
 
 bool WIN_SetRawKeyboardEnabled(SDL_VideoDevice *_this, bool enabled)
 {
-    return SDL_Unsupported();
+    SDL_VideoData *data = _this->internal;
+    if (!data->gameinput_context) {
+        return SDL_Unsupported();
+    }
+    data->raw_keyboard_enabled = enabled;
+    return WIN_UpdateGameInputEnabled(_this);
 }
 
 bool WIN_SetRawKeyboardFlag_NoHotkeys(SDL_VideoDevice *_this, bool enabled)

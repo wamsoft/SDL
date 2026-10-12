@@ -619,6 +619,17 @@ static bool WIN_VideoInit(SDL_VideoDevice *_this)
 
     if (SDL_GetHintBoolean(SDL_HINT_WINDOWS_GAMEINPUT, false)) {
         WIN_InitGameInput(_this);
+#if defined(SDL_PLATFORM_XBOXONE) || defined(SDL_PLATFORM_XBOXSERIES)
+        // Xbox has no window messages for mouse and keyboard, so GameInput is the
+        // only source: read both from the start. Mouse motion arrives as relative
+        // deltas and SDL accumulates them into a position clamped to the window,
+        // so relative mouse mode is not required.
+        if (data->gameinput_context) {
+            data->raw_mouse_enabled = true;
+            data->raw_keyboard_enabled = true;
+            WIN_UpdateGameInputEnabled(_this);
+        }
+#endif
     }
 
 #if defined(SDL_PLATFORM_XBOXONE) || defined(SDL_PLATFORM_XBOXSERIES)
